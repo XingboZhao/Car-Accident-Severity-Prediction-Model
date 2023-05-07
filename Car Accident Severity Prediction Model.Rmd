@@ -1,0 +1,164 @@
+---
+title: "Machine Learning Project"
+author: "Xingbo Zhao"
+date: "2023-05-07"
+output: html_document
+---
+Libraries
+```{r}
+library(dplyr)
+library(tidyselect)
+library(readr)
+library(rpart)
+library(rpart.plot)
+library(tree)
+```
+Data Cleaning
+```{r}
+#Import data
+test <- read_csv("~/Desktop/101C/Project/AcctestNoYNew.csv")
+train <- read_csv("~/Desktop/101C/Project/Acctrain.csv")
+sample <- read_csv("~/Desktop/101C/Project/AccSampleNew.csv")
+#Clean data
+str(test)
+train <- na.omit(train)
+train$Severity <- as.factor(train$Severity)
+#Change time into data and time
+train$Starting_Date <- as.Date(train$Start_Time)
+test$Starting_Date <- as.Date(test$Start_Time)
+#train$Starting_Time <- format(train$Start_Time, "%H:%M:%S")
+train$YM <- format(as.Date(train$Starting_Date), "%Y-%m")
+test$YM <- format(as.Date(test$Starting_Date), "%Y-%m")
+train$Y <- format(as.Date(train$Starting_Date), "%Y")
+test$Y <- format(as.Date(test$Starting_Date), "%Y")
+```
+Data Cleaning - changing characters to factors
+```{r}
+test$Wind_Direction[test$Wind_Direction=='Calm'] <- "CALM"
+
+train$Description[train$Severity== "SEVERE"]#looking at descriptions
+
+blocked_i<-grep(c("blocked."), train$Description)
+table(train$Severity[blocked_i])/length(blocked_i)
+blocked_boolean_train <- rep(0, dim(train)[1])
+blocked_boolean_train[blocked_i] <- 1
+train$blocked_boolean <- blocked_boolean_train #adding the blocked boolean to train
+
+Closed_i<-grep(c("Closed"), train$Description)
+table(train$Severity[Closed_i])/length(Closed_i)
+Closed_boolean_train <- rep(0, dim(train)[1])
+Closed_boolean_train[Closed_i] <- 1
+train$Closed_boolean <- Closed_boolean_train #adding the Closed boolean to train
+
+caution_i<-grep(c("caution"), train$Description)
+table(train$Severity[caution_i])/length(caution_i)
+caution_boolean_train <- rep(0, dim(train)[1])
+caution_boolean_train[caution_i] <- 1
+train$caution_boolean <- caution_boolean_train #adding the caution boolean to train
+
+#adding variables to the test dataset
+blocked_i_test<-grep(c("blocked."), test$Description)
+blocked_boolean_test <- rep(0, dim(test)[1])
+blocked_boolean_test[blocked_i_test] <- 1
+test$blocked_boolean <- blocked_boolean_test #adding blocked to test
+
+Closed_i_test<-grep(c("Closed"), test$Description)
+Closed_boolean_test <- rep(0, dim(test)[1])
+Closed_boolean_test[Closed_i_test] <- 1
+test$Closed_boolean <- Closed_boolean_test #adding Closed to test
+
+caution_i_test<-grep(c("caution"), test$Description)
+caution_boolean_test <- rep(0, dim(test)[1])
+caution_boolean_test[caution_i_test] <- 1
+test$caution_boolean <- caution_boolean_test #adding caution to test
+
+train.sub <- train[,-c(9,10,12,13,15,18,27)]
+train.sub[sapply(train.sub, is.character)] <-
+  lapply(train.sub[sapply(train.sub,is.character)],as.factor)
+test.sub <- test[,-c(9,10,12,13,15,18,27)]
+test.sub[sapply(test.sub, is.character)] <-
+  lapply(test.sub[sapply(test.sub,is.character)],as.factor)
+str(train.sub)
+```
+
+HW 4 GLM Model with county as additional predictor
+```{r}
+#clean data by changing F/T to 0/1
+train.m <- train
+train.m$Junction<- as.factor(ifelse(train.m$Junction == 'FALSE',0,1))
+train.m$Traffic_Signal<- as.factor(ifelse(train.m$Traffic_Signal=='FALSE',0,1))
+train.m$Crossing <- as.factor(ifelse(train.m$Crossing == 'FALSE',0,1))
+train.m$Station <- as.factor(ifelse(train.m$Station == 'FALSE',0,1))
+train.m$Side <- as.factor(ifelse(train.m$Side == 'L',0,1))
+train.m$Nautical_Twilight <- as.factor(ifelse(train.m$Nautical_Twilight == 'Day',0,1))
+train.m$Astronomical_Twilight <- as.factor(ifelse(train.m$Astronomical_Twilight == 'Day',0,1))
+train$num <- ifelse(train$Severity == "MILD", 0, 1)
+#Create the County Mild/Severe percentage
+county <- train %>% group_by(County) %>% summarise(num = mean(Severity == "SEVERE"))
+new_train <- train %>% inner_join(county, by = "County")
+names(new_train)[names(new_train) == 'num.x'] <- 'Severity.num'
+names(new_train)[names(new_train) == 'num.y'] <- 'County.percent'
+#Keep Column num the same
+new_train <- select(new_train, -County)
+#change the testing data set
+new_test <- test %>% inner_join(county, by = "County")
+names(new_test)[names(new_test) == 'num'] <- 'County.percent'
+new_test <- select(new_test, -County)
+#Find the testing obs with different counties than the training data
+temp.test <- test %>% anti_join(county, by = "County")
+temp.test = select(temp.test, -County)
+#create median and use it for other counties
+county.median <- median(county$num)
+temp.test$County.percent <- county.median
+#combine temp.test and new_test
+test.updated <- rbind(new_test, temp.test)
+test.updated <- test.updated[order(test.updated$Ob),]
+```  
+11/15
+```{r}
+#Create YM percentage by severity
+new_train$num <- ifelse(new_train$Severity == "MILD", 0, 1)
+YM.per <- new_train %>% group_by(YM) %>% summarise(num = mean(Severity == "SEVERE"))
+new_train.YM <- new_train %>% inner_join(YM.per, by = "YM")
+names(new_train.YM)[names(new_train.YM) == 'num.y'] <- 'YM.percent'
+new_train.YM <- select(new_train.YM, -YM, -num.x, -Severity, -Starting_Date)
+#Change the testing ds
+test.updated$YM <- format(as.Date(test.updated$Start_Time), "%Y-%m")
+test.updated.YM <- test.updated %>% inner_join(YM.per, by = "YM")
+names(test.updated.YM)[names(test.updated.YM) == 'num'] <- 'YM.percent'
+test.updated.YM <- select(test.updated.YM, -YM, -Ob)
+```
+
+```{r}
+#build model
+m1 <- glm(Severity.num~Junction+Traffic_Signal+Crossing+Station+Side+Nautical_Twilight+Astronomical_Twilight+County.percent+YM.percent, family='binomial',data=new_train.YM)
+#Predict
+predict_temp <- predict(m1,type = 'response', newdata = test.updated.YM, data = new_train.YM)
+pred_severity <- rep('SEVERE',length(predict_temp))
+pred_severity[predict_temp<.5] <- 'MILD'
+pred_severity <- as.data.frame(pred_severity)
+Output <- cbind(1:15000,pred_severity)
+colnames(Output) <- c('Ob','SEVERITY')
+#Write CSV
+write.csv(pred_severity,file='11.15.01.csv')
+```
+Using Tree model
+```{r}
+#Modify data
+test$Junction<- as.factor(ifelse(test$Junction == 'FALSE',0,1))
+test$Traffic_Signal<- as.factor(ifelse(test$Traffic_Signal=='FALSE',0,1))
+test$Crossing <- as.factor(ifelse(test$Crossing == 'FALSE',0,1))
+test$Station <- as.factor(ifelse(test$Station == 'FALSE',0,1))
+test$Side <- as.factor(ifelse(test$Side == 'L',0,1))
+test$Nautical_Twilight <- as.factor(ifelse(test$Nautical_Twilight == 'Day',0,1))
+test$Astronomical_Twilight <- as.factor(ifelse(test$Astronomical_Twilight == 'Day',0,1))
+#build model
+tree_model <- tree(Severity~Junction+Traffic_Signal+Crossing+Station+Side+Nautical_Twilight+Astronomical_Twilight,data = train.m)
+#Prediction and error rate
+pred=predict(tree_model,test,type="class")
+pred<-as.data.frame(pred)
+Output <- cbind(1:15000,pred)
+colnames(Output) <- c('Ob','SEVERITY')
+#Write CSV
+write.csv(pred_severity,file='11.18.01.csv')
+```
