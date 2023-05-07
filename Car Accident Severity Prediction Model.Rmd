@@ -81,7 +81,7 @@ test.sub[sapply(test.sub, is.character)] <-
 str(train.sub)
 ```
 
-HW 4 GLM Model with county as additional predictor
+GLM Model with county as additional predictor
 ```{r}
 #clean data by changing F/T to 0/1
 train.m <- train
@@ -114,7 +114,8 @@ temp.test$County.percent <- county.median
 test.updated <- rbind(new_test, temp.test)
 test.updated <- test.updated[order(test.updated$Ob),]
 ```  
-11/15
+
+Modify Year and month variables to percentages
 ```{r}
 #Create YM percentage by severity
 new_train$num <- ifelse(new_train$Severity == "MILD", 0, 1)
